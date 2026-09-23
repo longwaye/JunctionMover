@@ -1,0 +1,23 @@
+# Dependencies
+node_modules/
+dist/
+
+# Tauri build
+src-tauri/target/
+src-tauri/gen/
+
+# IDE
+.vscode/
+.idea/
+
+# Logs
+*.log
+
+# Temporary scripts
+*.ps1
+*.bat
+
+# OS
+Thumbs.db
+Desktop.ini
+.DS_Store

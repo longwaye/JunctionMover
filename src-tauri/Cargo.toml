@@ -1,0 +1,25 @@
+[package]
+name = "junctionmover"
+version = "0.1.0"
+description = "JunctionMover - AppData 目录扫描与安全迁移工具"
+edition = "2021"
+
+[build-dependencies]
+tauri-build = { version = "2", features = [] }
+
+[dependencies]
+tauri = { version = "2", features = [] }
+# [新增] 原生文件夹选择对话框（选迁移目标盘/文件夹）
+tauri-plugin-dialog = "2"
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+base64 = "0.22"
+
+[features]
+custom-protocol = ["tauri/custom-protocol"]
+
+[profile.release]
+lto = true
+strip = true
+codegen-units = 1
+panic = "abort"

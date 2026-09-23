@@ -1,0 +1,166 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title data-i18n="app.title">JunctionMover - Disk Migration Tool</title>
+  <link rel="stylesheet" href="/styles.css" />
+</head>
+<body>
+  <div id="app">
+    <!-- 左侧导航 -->
+    <aside class="sidebar">
+      <div class="app-logo">
+        <div class="logo-ico">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+            <circle cx="12" cy="12" r="10"/><line x1="2" y1="12" x2="22" y2="12"/><path d="M12 2a15.3 15.3 0 0 1 4 10 15.3 15.3 0 0 1-4 10 15.3 15.3 0 0 1-4-10 15.3 15.3 0 0 1 4-10z"/>
+          </svg>
+        </div>
+        <div>
+          <div class="logo-name">JunctionMover</div>
+          <div class="logo-ver">v0.1.0</div>
+        </div>
+      </div>
+      <nav class="nav">
+        <button class="nav-item active" data-panel="panel-drives">
+          <span class="nav-ico"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="2" y="3" width="20" height="14" rx="2"/><line x1="2" y1="20" x2="22" y2="20"/><circle cx="6" cy="10" r="1"/></svg></span> <span data-i18n="nav.drives">磁盘总览</span>
+        </button>
+        <button class="nav-item" data-panel="panel-dirs">
+          <span class="nav-ico"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M22 19a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h5l2 3h9a2 2 0 0 1 2 2z"/></svg></span> <span data-i18n="nav.dirs">目录分析</span>
+        </button>
+        <button class="nav-item" data-panel="panel-tasks">
+          <span class="nav-ico"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="17 1 21 5 17 9"/><path d="M3 11V9a4 4 0 0 1 4-4h14"/><polyline points="7 23 3 19 7 15"/><path d="M21 13v2a4 4 0 0 1-4 4H3"/></svg></span> <span data-i18n="nav.tasks">迁移任务</span>
+        </button>
+        <button class="nav-item" data-panel="panel-junctions">
+          <span class="nav-ico"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 12a9 9 0 1 0 9-9 9.75 9.75 0 0 0-6.74 2.74L3 8"/><polyline points="3 3 3 8 8 8"/></svg></span> <span data-i18n="nav.junctions">已迁移 / 回滚</span>
+        </button>
+        <button class="nav-item" data-panel="panel-logs">
+          <span class="nav-ico"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><polyline points="14 2 14 8 20 8"/><line x1="8" y1="13" x2="16" y2="13"/><line x1="8" y1="17" x2="16" y2="17"/></svg></span> <span data-i18n="nav.logs">操作日志</span>
+        </button>
+      </nav>
+      <div class="sidebar-foot">
+        <div class="sidebar-actions">
+          <a class="gh-link" href="https://github.com/longwaye/JunctionMover" target="_blank" rel="noopener noreferrer" aria-label="GitHub" title="GitHub">
+            <svg viewBox="0 0 16 16" fill="currentColor" aria-hidden="true">
+              <path d="M8 0C3.58 0 0 3.58 0 8c0 3.54 2.29 6.53 5.47 7.59.4.07.55-.17.55-.38 0-.19-.01-.82-.01-1.49-2.01.37-2.53-.49-2.69-.94-.09-.23-.48-.94-.82-1.13-.28-.15-.68-.52-.01-.53.63-.01 1.08.58 1.23.82.72 1.21 1.87.87 2.33.66.07-.52.28-.87.51-1.07-1.78-.2-3.64-.89-3.64-3.95 0-.87.31-1.59.82-2.15-.08-.2-.36-1.02.08-2.12 0 0 .67-.21 2.2.82.64-.18 1.32-.27 2-.27.68 0 1.36.09 2 .27 1.53-1.04 2.2-.82 2.2-.82.44 1.1.16 1.92.08 2.12.51.56.82 1.27.82 2.15 0 3.07-1.87 3.75-3.65 3.95.29.25.54.73.54 1.48 0 1.07-.01 1.93-.01 2.2 0 .21.15.46.55.38A8.013 8.013 0 0 0 16 8c0-4.42-3.58-8-8-8z"/>
+            </svg>
+          </a>
+          <button id="langToggle" class="lang-toggle" type="button">中文</button>
+        </div>
+        <div data-i18n="nav.tagline" class="sidebar-tagline">扫描 · 分析 · 安全迁移</div>
+      </div>
+    </aside>
+
+    <!-- 右侧内容区 -->
+    <main class="content">
+      <header class="appbar">
+        <div class="appbar-title" id="appbarTitle" data-i18n="nav.drives">磁盘总览</div>
+        <div class="appbar-right">
+          <span id="appStatus" class="app-status"><span class="dot"></span><span data-i18n="status.ready">就绪</span></span>
+        </div>
+      </header>
+
+      <!-- 磁盘总览 -->
+      <section id="panel-drives" class="panel">
+        <div class="panel-head">
+          <h2 data-i18n="drives.title">磁盘总览</h2>
+          <span class="panel-sub" data-i18n="drives.subtitle">各盘容量与剩余空间</span>
+        </div>
+        <div id="driveList" class="drive-grid"><div class="loading" data-i18n="drives.scanning">扫描中...</div></div>
+      </section>
+
+      <!-- 目录分析 -->
+      <section id="panel-dirs" class="panel hidden">
+        <div class="panel-head">
+          <h2 data-i18n="dirs.title">AppData 目录分析</h2>
+          <span class="panel-sub" data-i18n="dirs.subtitle">识别 C 盘可迁移的应用数据目录</span>
+          <button id="btnScan" class="btn btn-primary" data-i18n="dirs.scan">扫描</button>
+        </div>
+        <div id="scanProgress" class="scan-progress hidden">
+          <span class="spinner"></span>
+          <span><span data-i18n="dirs.scanning_prefix">正在扫描：</span><b id="scanPos">准备中...</b></span>
+          <button id="btnStopScan" class="btn btn-sm btn-danger" data-i18n="dirs.stop_scan">停止扫描</button>
+        </div>
+        <div class="toolbar">
+          <label class="chk"><input type="checkbox" id="onlyMovable" checked /> <span data-i18n="dirs.movable_only">只看可迁移</span></label>
+          <label class="chk"><input type="checkbox" id="onlyBig" checked /> <span data-i18n="dirs.big_only">只看 &gt; 200MB</span></label>
+          <label class="chk" data-i18n-title="dirs.safe_cache_title" title="只显示大型缓存类目录（Cache/Temp/Logs 等）。缓存可由软件自动重建，迁移风险相对最低，但迁移前仍请关闭对应软件"><input type="checkbox" id="onlySafeCache" /> <span data-i18n="dirs.safe_cache">安全推荐（大缓存）</span></label>
+          <span id="statText" class="stat"></span>
+          <button id="btnAddTasks" class="btn btn-primary" disabled data-i18n="dirs.add_tasks">添加勾选到迁移任务 →</button>
+        </div>
+        <div class="table-wrap">
+          <table class="dir-table">
+            <thead>
+              <tr>
+                <th style="width:34px"></th>
+                <th data-i18n="dirs.col_app">应用/目录</th>
+                <th data-i18n="dirs.col_location">位置</th>
+                <th class="th-sort" id="thSize" data-i18n-title="dirs.size_sort_title" title="点击按大小排序"><span data-i18n="dirs.col_size">大小</span> <span class="sort-arrow" id="dirSortArrow">⇅</span></th>
+                <th data-i18n="dirs.col_type">类型</th>
+                <th data-i18n="dirs.col_status">状态</th>
+              </tr>
+            </thead>
+            <tbody id="dirBody"></tbody>
+          </table>
+        </div>
+        <div id="dirEmpty" class="empty hidden" data-i18n="dirs.empty">没有符合条件的目录，调整筛选或点击重新扫描。</div>
+      </section>
+
+      <!-- 迁移任务 -->
+      <section id="panel-tasks" class="panel hidden">
+        <div class="panel-head">
+          <h2 data-i18n="tasks.title">迁移任务</h2>
+          <span class="panel-sub" data-i18n="tasks.subtitle">选目标文件夹 → 复制 → 校验 → 删源 → 建 Junction → 验证，全程可回滚</span>
+        </div>
+        <div class="task-controls">
+          <button id="btnBatchTarget" class="btn btn-ghost" disabled data-i18n="tasks.batch_target">批量设置目标文件夹...</button>
+          <button id="btnMigrate" class="btn btn-warn" disabled data-i18n="tasks.start_migrate">开始迁移勾选项</button>
+          <span id="taskHint" class="stat"></span>
+        </div>
+        <div id="taskList" class="task-list"><div class="empty" data-i18n="tasks.empty">尚未添加任务。在"目录分析"中勾选目录后，点击"添加勾选到迁移任务"。</div></div>
+        <div id="progressWrap" class="hidden">
+          <div class="progress-bar"><div id="progressFill"></div></div>
+          <div id="progressText" class="stat"></div>
+        </div>
+      </section>
+
+      <!-- 已迁移 / 回滚 -->
+      <section id="panel-junctions" class="panel hidden">
+        <div class="panel-head">
+          <h2 data-i18n="junc.title">已迁移 / 回滚</h2>
+          <span class="panel-sub" data-i18n="junc.subtitle">所有通过 Junction 迁移到其他盘的目录，可安全迁回 C 盘</span>
+        </div>
+        <div class="toolbar">
+          <div class="seg" role="tablist">
+            <button class="seg-btn active" id="jvTree" type="button" data-i18n="junc.view_tree">按层级</button>
+            <button class="seg-btn" id="jvSize" type="button" data-i18n="junc.view_size">按大小</button>
+          </div>
+          <div class="seg seg-sm hidden" id="jSortSeg" role="group" aria-label="大小排序方向">
+            <button class="seg-btn active" id="jsDesc" type="button" data-i18n="junc.sort_desc">大 → 小</button>
+            <button class="seg-btn" id="jsAsc" type="button" data-i18n="junc.sort_asc">小 → 大</button>
+          </div>
+          <span id="junctionStat" class="stat"></span>
+        </div>
+        <div id="junctionEmpty" class="empty" data-i18n="junc.empty">没有发现已迁移的目录。完成迁移后重新扫描即可在此回滚。</div>
+        <div id="junctionList" class="jtree"></div>
+        <div id="rbProgressWrap" class="hidden">
+          <div class="progress-bar"><div id="rbProgressFill"></div></div>
+          <div id="rbProgressText" class="stat"></div>
+        </div>
+      </section>
+
+      <!-- 日志 -->
+      <section id="panel-logs" class="panel hidden">
+        <div class="panel-head">
+          <h2 data-i18n="logs.title">操作日志</h2>
+          <span class="panel-sub" data-i18n="logs.subtitle">所有操作的详细记录</span>
+          <button id="btnClearLog" class="btn btn-ghost" data-i18n="logs.clear">清空日志</button>
+        </div>
+        <pre id="logBox" class="log-box"></pre>
+      </section>
+    </main>
+  </div>
+
+  <script type="module" src="/main.js"></script>
+</body>
+</html>
