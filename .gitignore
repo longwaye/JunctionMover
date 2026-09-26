@@ -21,6 +21,9 @@ src-tauri/gen/
 /*.zip
 /*-setup.exe
 
+# Local dev log (not published)
+/DEVLOG.md
+
 # OS
 Thumbs.db
 Desktop.ini
