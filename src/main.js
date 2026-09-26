@@ -2,6 +2,10 @@
 import { invoke } from '@tauri-apps/api/core'
 import { listen } from '@tauri-apps/api/event'
 import { t, getCurrentLang, setLang, toggleLang, applyI18n } from './i18n.js'
+import pkg from '../package.json'
+
+// 侧边栏版本号跟随 package.json，发版只改 package.json/tauri.conf.json/Cargo.toml
+document.getElementById('logoVer').textContent = 'v' + pkg.version
 
 const $ = (id) => document.getElementById(id)
 const SCAN_CANCELLED = '__ps_cancelled__'
