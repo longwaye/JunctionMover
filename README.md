@@ -69,6 +69,7 @@ cd JunctionMover
 npm install
 npm run tauri dev    # dev preview
 npm run tauri build  # build installer
+npm run package      # copy the built exe to a versioned name (JunctionMover_x.x.x_x64.exe)
 ```
 
 ## Usage

@@ -171,6 +171,7 @@ npm run tauri dev
 
 # 打包
 npm run tauri build
+npm run package      # 复制出带版本号的 exe（JunctionMover_x.x.x_x64.exe）
 
 # 运行测试（常规单元测试）
 cd src-tauri && cargo test

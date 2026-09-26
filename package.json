@@ -1,6 +1,6 @@
 {
   "name": "junctionmover",
-  "version": "0.2.0",
+  "version": "0.2.1",
   "description": "JunctionMover - C盘目录扫描与安全迁移工具",
   "private": true,
   "type": "module",
@@ -8,7 +8,8 @@
     "dev": "vite",
     "build": "vite build",
     "preview": "vite preview",
-    "tauri": "tauri"
+    "tauri": "tauri",
+    "package": "powershell -NoProfile -Command \"$v=(Get-Content package.json -Raw | ConvertFrom-Json).version; Copy-Item 'src-tauri\\target\\release\\junctionmover.exe' ('src-tauri\\target\\release\\JunctionMover_' + $v + '_x64.exe'); Write-Host ('OK: JunctionMover_' + $v + '_x64.exe')\""
   },
   "dependencies": {
     "@tauri-apps/api": "^2.0.0"
