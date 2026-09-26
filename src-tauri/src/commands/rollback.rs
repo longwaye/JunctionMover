@@ -108,6 +108,43 @@ function Get-DirSize($path) {
     return [PSCustomObject]@{ Count = $count; Bytes = $size }
 }
 
+# 枚举目录内部的所有目录联接/符号链接（Get-ChildItem 会列出 reparse point 但不递归进入）。
+# 典型场景：npm/pnpm 在 node_modules 下建的目录联接。
+# 复制引擎用 robocopy /XJ 跳过这些联接（只复制实体文件），随后在目标侧原样重建。
+function Get-InnerDirLinks($base) {
+    $list = New-Object System.Collections.ArrayList
+    Get-ChildItem -LiteralPath $base -Recurse -Force -Directory -ErrorAction SilentlyContinue | ForEach-Object {
+        if (($_.Attributes -band [IO.FileAttributes]::ReparsePoint) -ne 0) {
+            [void]$list.Add([PSCustomObject]@{
+                Rel    = $_.FullName.Substring($base.Length)
+                Target = ($_.Target -join '')
+            })
+        }
+    }
+    return ,$list
+}
+
+# 在目标目录树中按原绝对目标重建内部联接（mklink /J 建 Junction 无需管理员权限），返回失败数
+function Restore-InnerLinks($dstBase, $links) {
+    $failed = 0
+    foreach ($l in $links) {
+        if (-not $l.Target) { $failed++; continue }
+        $newLink = $dstBase.TrimEnd('\') + $l.Rel
+        cmd /c mklink /J "$newLink" "$($l.Target)" | Out-Null
+        if (-not (Test-Path -LiteralPath $newLink)) { $failed++ }
+    }
+    return [int]$failed
+}
+
+# 删除含内部联接的目录前，必须先用 cmd rmdir 逐个摘除联接（只删 reparse point）。
+# PS 5.1 的 Remove-Item -Recurse 会穿透联接、删掉链接目标里的真实文件（如 C 盘 npm 全局包）。
+function Detach-InnerLinks($base, $links) {
+    foreach ($l in $links) {
+        $p = $base.TrimEnd('\') + $l.Rel
+        if (Test-Path -LiteralPath $p) { cmd /c rmdir "$p" | Out-Null }
+    }
+}
+
 # robocopy 后台运行，每 700ms 统计目标目录增量输出 COPY 进度行（心跳）
 function Invoke-RobocopyProgress($from, $to, $totalStat) {
     $logFile = [System.IO.Path]::GetTempFileName()
@@ -116,7 +153,8 @@ function Invoke-RobocopyProgress($from, $to, $totalStat) {
     $stdoutFile = [System.IO.Path]::GetTempFileName()
     $stderrFile = [System.IO.Path]::GetTempFileName()
     try {
-        $argLine = '"{0}" "{1}" /E /COPY:DAT /DCOPY:DAT /R:1 /W:1 /NFL /NDL /NJH /NJS /NP /LOG:"{2}"' -f $from, $to, $logFile
+        # /XJ：跳过目录联接，不跟随复制其目标内容；联接由 Restore-InnerLinks 单独重建
+        $argLine = '"{0}" "{1}" /E /XJ /COPY:DAT /DCOPY:DAT /R:1 /W:1 /NFL /NDL /NJH /NJS /NP /LOG:"{2}"' -f $from, $to, $logFile
         $proc = Start-Process -FilePath 'robocopy.exe' -ArgumentList $argLine -NoNewWindow -PassThru `
             -RedirectStandardOutput $stdoutFile -RedirectStandardError $stderrFile
         while (-not $proc.WaitForExit(700)) {
@@ -181,6 +219,9 @@ if ($null -ne $rmResult -and $rmResult.Count -gt 0) {
     Send-Result $false ('Cannot auto-close these processes, please close manually and retry: ' + ($rmResult -join ', '))
     exit
 }
+# 复制前记录目标盘数据内的内部联接，回拷后在暂存目录原样重建
+$innerLinks = Get-InnerDirLinks $target
+
 Write-Output 'PROGRESS|copying_back'
 New-Item -ItemType Directory -Path $stage -Force | Out-Null
 $rc = Invoke-RobocopyProgress $target $stage $tStat
@@ -194,6 +235,13 @@ Write-Output 'PROGRESS|verifying_staging'
 $stStat = Get-DirSize $stage
 if ($stStat.Count -ne $tStat.Count -or $stStat.Bytes -ne $tStat.Bytes) {
     Send-Result $false ('Rollback verification mismatch: target {0} files/{1}MB, staging {2} files/{3}MB. Junction unchanged (staging: {4})' -f $tStat.Count, [math]::Round($tStat.Bytes/1MB,1), $stStat.Count, [math]::Round($stStat.Bytes/1MB,1), $stage)
+    exit
+}
+
+# 在暂存目录重建内部联接；失败则中止（Junction 未动，可排查后重试）
+$linkFail = Restore-InnerLinks $stage $innerLinks
+if ($linkFail -gt 0) {
+    Send-Result $false ('Data copied back and verified, but {0} internal junction(s) could not be recreated. Junction unchanged (staging: {1})' -f [int]$linkFail, $stage)
     exit
 }
 
@@ -227,6 +275,8 @@ if ($fStat.Count -ne $tStat.Count) {
 }
 
 # 清理目标盘旧数据目录（失败不影响回滚结论，仅提示手动清理）
+# 先摘除内部联接，防止 Remove-Item -Recurse 穿透联接删掉链接目标的真实数据
+Detach-InnerLinks $target $innerLinks
 $leftover = $false
 Remove-Item -LiteralPath $target -Recurse -Force -ErrorAction SilentlyContinue
 if (Test-Path -LiteralPath $target) { $leftover = $true }

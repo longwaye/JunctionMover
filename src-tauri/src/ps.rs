@@ -1,9 +1,12 @@
 // PowerShell 执行层：所有 Windows 原生操作（robocopy / mklink /J / rmdir）都通过
-// -EncodedCommand 跑独立的 powershell 进程完成，窗口隐藏。
+// 临时 .ps1 文件以 powershell -File 跑独立进程完成，窗口隐藏。
+// 不用 -EncodedCommand：脚本（含 Restart Manager 的 C# 代码）经 UTF-16LE Base64
+// 膨胀后会超过 CreateProcess 约 32K 的命令行上限，-File 方式无此限制。
 
-use std::io::{BufRead, BufReader, Read};
+use std::io::{BufRead, BufReader, Read, Write};
+use std::path::{Path, PathBuf};
 use std::process::{Command, Stdio};
-use std::sync::atomic::AtomicBool;
+use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
 use std::sync::Mutex;
 use tauri::Emitter;
 
@@ -14,10 +17,52 @@ pub(crate) const PS_CANCELLED: &str = "__ps_cancelled__";
 #[cfg(windows)]
 const CREATE_NO_WINDOW: u32 = 0x0800_0000;
 
+static TEMP_SEQ: AtomicU64 = AtomicU64::new(0);
+
+/// 临时脚本文件：写入时带 UTF-8 BOM（PS 5.1 无 BOM 时按 ANSI/CP936 解析会乱码），
+/// Drop 时自动删除，避免遗留。
+struct TempScript {
+    path: PathBuf,
+}
+
+impl TempScript {
+    fn new(script: &str) -> Result<Self, String> {
+        let nanos = std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .map(|d| d.as_nanos())
+            .unwrap_or(0);
+        let seq = TEMP_SEQ.fetch_add(1, Ordering::Relaxed);
+        let mut path = std::env::temp_dir();
+        path.push(format!("jm_ps_{}_{}_{}.ps1", std::process::id(), nanos, seq));
+        let mut f = std::fs::File::create(&path)
+            .map_err(|e| format!("创建临时脚本失败: {}", e))?;
+        f.write_all(&[0xEF, 0xBB, 0xBF]).map_err(|e| {
+            format!("写入临时脚本失败: {}", e)
+        })?;
+        // PowerShell 5.1 对 LF-only 脚本的 here-string/块解析不可靠，
+        // 统一规范化为 CRLF（脚本源码来自 Rust raw string，本身只有 LF）
+        let normalized = script.replace("\r\n", "\n").replace('\n', "\r\n");
+        f.write_all(normalized.as_bytes())
+            .map_err(|e| format!("写入临时脚本失败: {}", e))?;
+        Ok(Self { path })
+    }
+
+    fn path(&self) -> &Path {
+        &self.path
+    }
+}
+
+impl Drop for TempScript {
+    fn drop(&mut self) {
+        let _ = std::fs::remove_file(&self.path);
+    }
+}
+
 /// 将 UTF-8 字符串编码为 PowerShell -EncodedCommand 所需的 UTF-16LE Base64
+/// （当前执行走 -File 临时文件，保留供测试与潜在小脚本使用）
+#[allow(dead_code)]
 pub(crate) fn ps_encode(script: &str) -> String {
     use base64::Engine;
-    use std::io::Write;
     let mut buf = Vec::new();
     for unit in script.encode_utf16() {
         buf.write_all(&unit.to_le_bytes()).unwrap();
@@ -30,15 +75,11 @@ pub(crate) fn ps_q(s: &str) -> String {
     format!("'{}'", s.replace('\'', "''"))
 }
 
-fn build_command(encoded: &str) -> Command {
+fn build_command(script_path: &Path) -> Command {
     let mut cmd = Command::new("powershell");
-    cmd.args([
-        "-NoProfile",
-        "-ExecutionPolicy",
-        "Bypass",
-        "-EncodedCommand",
-        encoded,
-    ]);
+    // -File 必须在最后，其后只跟脚本路径（不传脚本参数）
+    cmd.args(["-NoProfile", "-ExecutionPolicy", "Bypass", "-File"]);
+    cmd.arg(script_path);
     #[cfg(windows)]
     {
         use std::os::windows::process::CommandExt;
@@ -49,7 +90,8 @@ fn build_command(encoded: &str) -> Command {
 
 /// 执行 PowerShell 脚本，返回 stdout
 pub(crate) fn run_ps(script: &str) -> Result<String, String> {
-    let out = build_command(&ps_encode(script))
+    let tmp = TempScript::new(script)?;
+    let out = build_command(tmp.path())
         .output()
         .map_err(|e| format!("无法启动 PowerShell: {}", e))?;
     if !out.status.success() {
@@ -81,7 +123,9 @@ where
 {
     use std::sync::atomic::Ordering;
 
-    let mut cmd = build_command(&ps_encode(script));
+    // 临时脚本必须存活到子进程结束（Drop 时删除）
+    let tmp = TempScript::new(script)?;
+    let mut cmd = build_command(tmp.path());
     cmd.stdout(Stdio::piped()).stderr(Stdio::piped());
 
     let mut child = cmd

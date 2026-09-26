@@ -160,6 +160,44 @@ function Get-DirSize($path) {
     return [PSCustomObject]@{ Count = $count; Bytes = $size }
 }
 
+# 枚举目录内部的所有目录联接/符号链接（Get-ChildItem 会列出 reparse point 但不递归进入）。
+# 典型场景：npm/pnpm 在 node_modules 下建的目录联接。
+# 复制引擎用 robocopy /XJ 跳过这些联接（只复制实体文件），随后在目标侧原样重建。
+function Get-InnerDirLinks($base) {
+    $list = New-Object System.Collections.ArrayList
+    Get-ChildItem -LiteralPath $base -Recurse -Force -Directory -ErrorAction SilentlyContinue | ForEach-Object {
+        if (($_.Attributes -band [IO.FileAttributes]::ReparsePoint) -ne 0) {
+            [void]$list.Add([PSCustomObject]@{
+                Rel    = $_.FullName.Substring($base.Length)
+                Target = ($_.Target -join '')
+            })
+        }
+    }
+    return ,$list
+}
+
+# 在目标目录树中按原绝对目标重建内部联接（mklink /J 建 Junction 无需管理员权限）。
+# 返回重建失败数，调用方据此中止（此时源数据尚未删除）。
+function Restore-InnerLinks($dstBase, $links) {
+    $failed = 0
+    foreach ($l in $links) {
+        if (-not $l.Target) { $failed++; continue }
+        $newLink = $dstBase.TrimEnd('\') + $l.Rel
+        cmd /c mklink /J "$newLink" "$($l.Target)" | Out-Null
+        if (-not (Test-Path -LiteralPath $newLink)) { $failed++ }
+    }
+    return [int]$failed
+}
+
+# 删除含内部联接的目录前，必须先用 cmd rmdir 逐个摘除联接（只删 reparse point）。
+# PS 5.1 的 Remove-Item -Recurse 会穿透联接、删掉链接目标里的真实文件（如 C 盘 npm 全局包）。
+function Detach-InnerLinks($base, $links) {
+    foreach ($l in $links) {
+        $p = $base.TrimEnd('\') + $l.Rel
+        if (Test-Path -LiteralPath $p) { cmd /c rmdir "$p" | Out-Null }
+    }
+}
+
 # robocopy 后台运行，每 700ms 统计目标目录增量输出 COPY 进度行（心跳）
 function Invoke-RobocopyProgress($from, $to, $totalStat) {
     $logFile = [System.IO.Path]::GetTempFileName()
@@ -168,7 +206,9 @@ function Invoke-RobocopyProgress($from, $to, $totalStat) {
     $stdoutFile = [System.IO.Path]::GetTempFileName()
     $stderrFile = [System.IO.Path]::GetTempFileName()
     try {
-        $argLine = '"{0}" "{1}" /E /COPY:DAT /DCOPY:DAT /R:1 /W:1 /NFL /NDL /NJH /NJS /NP /LOG:"{2}"' -f $from, $to, $logFile
+        # /XJ：跳过目录联接，不跟随复制其目标内容（与 Get-DirSize 的统计口径一致，
+        # 也防止把树外联接指向的数据重复复制）；联接由 Restore-InnerLinks 单独重建
+        $argLine = '"{0}" "{1}" /E /XJ /COPY:DAT /DCOPY:DAT /R:1 /W:1 /NFL /NDL /NJH /NJS /NP /LOG:"{2}"' -f $from, $to, $logFile
         $proc = Start-Process -FilePath 'robocopy.exe' -ArgumentList $argLine -NoNewWindow -PassThru `
             -RedirectStandardOutput $stdoutFile -RedirectStandardError $stderrFile
         while (-not $proc.WaitForExit(700)) {
@@ -219,6 +259,9 @@ if ($null -ne $rmResult -and $rmResult.Count -gt 0) {
     exit
 }
 
+# 复制前记录内部目录联接（如 node_modules 下的 npm 联接），复制后在目标侧原样重建
+$innerLinks = Get-InnerDirLinks $src
+
 Write-Output 'PROGRESS|copying'
 $rc = Invoke-RobocopyProgress $src $dst $s1
 if ($rc -ge 8) {
@@ -233,7 +276,16 @@ if ($s1.Count -ne $d1.Count -or $s1.Bytes -ne $d1.Bytes) {
     exit
 }
 
+# 在目标侧重建内部联接；失败则中止（源目录未动，可排查后重试）
+$linkFail = Restore-InnerLinks $dst $innerLinks
+if ($linkFail -gt 0) {
+    Send-Result $false ('Data copied and verified, but {0} internal junction(s) could not be recreated at the target. Source not deleted, junction not created; copy at: {1}' -f [int]$linkFail, $dst)
+    exit
+}
+
 Write-Output 'PROGRESS|deleting_src'
+# 先摘除源目录内的联接（只删链接），再删实体文件，防止 Remove-Item 穿透联接误删链接目标数据
+Detach-InnerLinks $src $innerLinks
 Remove-Item -LiteralPath $src -Recurse -Force -ErrorAction SilentlyContinue
 if (Test-Path -LiteralPath $src) {
     Send-Result $false 'Source directory deletion incomplete (may be in use). Junction not created. Data fully copied to target, please close the program using this directory and retry (do not manually delete C: remnants before retrying)'
@@ -241,19 +293,29 @@ if (Test-Path -LiteralPath $src) {
 }
 
 Write-Output 'PROGRESS|creating_junction'
-cmd /c mklink /J "$src" "$dst" | Out-Null
-$link = Get-Item -LiteralPath $src -Force -ErrorAction SilentlyContinue
+# 删除原目录后立即建联接可能撞上杀软/索引器的瞬时句柄，重试 3 次；
+# 同时保留每次的系统错误输出，失败时写入结论消息便于定位
+$mkErr = ''
+$link = $null
+for ($try = 1; $try -le 3 -and $null -eq $link; $try++) {
+    $mkErr = (cmd /c mklink /J "$src" "$dst" 2>&1 | Out-String)
+    $link = Get-Item -LiteralPath $src -Force -ErrorAction SilentlyContinue
+    if ($null -eq $link -and $try -lt 3) { Start-Sleep -Milliseconds 700 }
+}
 if ($null -eq $link -or ($link.LinkType -ne 'Junction' -and (($link.Attributes -band [IO.FileAttributes]::ReparsePoint) -eq 0))) {
+    $mkErr = ($mkErr -replace '\s+', ' ').Trim()
     # 原目录已删而联接创建失败：立即把数据回拷到原路径兜底，避免两边落空
     New-Item -ItemType Directory -Path $src -Force | Out-Null
-    robocopy $dst $src /E /COPY:DAT /DCOPY:DAT /R:1 /W:1 /NFL /NDL /NJH /NJS /NP | Out-Null
+    robocopy $dst $src /E /XJ /COPY:DAT /DCOPY:DAT /R:1 /W:1 /NFL /NDL /NJH /NJS /NP | Out-Null
     $rc2 = $LASTEXITCODE
     $rStat = Get-DirSize $src
     if ($rc2 -ge 8 -or $rStat.Count -ne $d1.Count -or $rStat.Bytes -ne $d1.Bytes) {
         Send-Result $false ('Junction creation failed, fallback copy also incomplete (target {0} files/{1}MB, C: {2} files/{3}MB). Target still has complete copy: {4}' -f $d1.Count, [math]::Round($d1.Bytes/1MB,1), $rStat.Count, [math]::Round($rStat.Bytes/1MB,1), $dst)
         exit
     }
-    Send-Result $false 'Junction creation failed, data restored to C: (file/size verified)'
+    # 回拷后把内部联接也恢复到 C 盘原树（目标路径为原绝对路径，仍然有效）
+    [void](Restore-InnerLinks $src $innerLinks)
+    Send-Result $false ('Junction creation failed after 3 attempts, data restored to C: (file/size verified). System message: {0}' -f $mkErr)
     exit
 }
 
@@ -282,13 +344,28 @@ mod tests {
         let src = base_src.join(name);
         let dst_dir = base_dst.join(name);
         let dst = dst_dir.join(name);
+        let ext = base_src.join(format!("{}_external", name));
         let _ = fs::remove_dir_all(&src);
         let _ = fs::remove_dir_all(&dst_dir);
+        let _ = fs::remove_dir_all(&ext);
         fs::create_dir_all(src.join("sub")).unwrap();
         for i in 0..files {
             fs::write(src.join(format!("f{}.dat", i)), format!("payload-{:08}", i)).unwrap();
         }
         fs::write(src.join("sub\\inner.txt"), "ok").unwrap();
+        // 外部真实目录 + 源内目录联接（npm node_modules 场景）：
+        // robocopy 不得跟随复制，删除源不得误删外部文件
+        fs::create_dir_all(&ext).unwrap();
+        for i in 0..3u32 {
+            fs::write(ext.join(format!("ext{}.txt", i)), "x").unwrap();
+        }
+        let _ = std::process::Command::new("cmd")
+            .args(["/C", "mklink", "/J", &src.join("linked").to_string_lossy(), &ext.to_string_lossy()])
+            .status();
+        // 深层联接也要能重建
+        let _ = std::process::Command::new("cmd")
+            .args(["/C", "mklink", "/J", &src.join("sub\\nested").to_string_lossy(), &ext.to_string_lossy()])
+            .status();
 
         let script = build_migrate_script(
             &src.to_string_lossy(),
@@ -306,12 +383,31 @@ mod tests {
             format!("__ERR__{} (dump: {})", e, dump.display())
         });
 
+        // 成功时额外验证内部联接语义
+        if out.contains("\"success\":true") {
+            // 外部真实文件必须仍在（Delete 步骤不得穿透联接误删）
+            assert!(
+                ext.join("ext0.txt").exists(),
+                "case {name}: external link target files were deleted during source removal"
+            );
+            // 目标侧重建的联接必须可解析（顶层和深层）
+            assert!(
+                dst.join("linked\\ext0.txt").exists(),
+                "case {name}: recreated top inner link not resolvable at target"
+            );
+            assert!(
+                dst.join("sub\\nested\\ext2.txt").exists(),
+                "case {name}: recreated nested inner link not resolvable at target"
+            );
+        }
+
         // 清理：删 junction（rmdir 不触数据）再删目标盘数据
         let _ = std::process::Command::new("cmd")
             .args(["/C", "rmdir", &src.to_string_lossy()])
             .status();
         let _ = fs::remove_dir_all(&src);
         let _ = fs::remove_dir_all(&dst_dir);
+        let _ = fs::remove_dir_all(&ext);
         (out, prog)
     }
 
