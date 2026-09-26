@@ -160,11 +160,19 @@ function Get-DirStat($path, $name, $juncMap) {
 }
 
 $result = @()
-foreach ($root in @('Local','Roaming')) {
-    $base = if ($root -eq 'Local') { $env:LOCALAPPDATA } else { $env:APPDATA }
+# Home 根只收录点开头目录（.dsh/.gradle/.npm 等工具缓存与配置），
+# 主目录下的 Desktop/Documents 等个人目录一律不枚举
+$roots = @(
+    @{ Root='Local';    Base=$env:LOCALAPPDATA; DotOnly=$false; MaxDepth=8 },
+    @{ Root='Roaming';  Base=$env:APPDATA;      DotOnly=$false; MaxDepth=8 },
+    @{ Root='Home';     Base=$env:USERPROFILE;  DotOnly=$true;  MaxDepth=6 }
+)
+foreach ($r in $roots) {
+    $root = $r.Root; $base = $r.Base
     $juncMap = Get-JunctionMap $base
     Get-ChildItem $base -Directory -Force -ErrorAction SilentlyContinue | ForEach-Object {
         $name = $_.Name
+        if ($r.DotOnly -and -not $name.StartsWith('.')) { return }
         # Junction（已迁移目录）无论名字是否在排除名单中都必须可见，否则无法回滚
         $isLink = $juncMap.ContainsKey($name) -or (Test-Link (Get-Item $_.FullName -Force))
         if ($isLink) {
@@ -181,8 +189,15 @@ foreach ($root in @('Local','Roaming')) {
         $stat = Get-DirStat $_.FullName $name $juncMap
         Add-Result $name $_.FullName $root $stat.isJunction $stat.target $stat.size $stat.files
     }
-    # 第二趟：深层跨盘 Junction（如 Google\Chrome\User Data\Profile 17）
-    Find-DeepJunctions $base $root 8
+    # 第二趟：深层跨盘 Junction（如 Google\Chrome\User Data\Profile 17）。
+    # Home 根不能直接遍历整个主目录（会扫进 Desktop/Documents），只在各点目录内部找
+    if ($r.DotOnly) {
+        Get-ChildItem $base -Directory -Force -ErrorAction SilentlyContinue |
+            Where-Object { $_.Name.StartsWith('.') -and -not (Test-Link $_) } |
+            ForEach-Object { Find-DeepJunctions $_.FullName $root $r.MaxDepth }
+    } else {
+        Find-DeepJunctions $base $root $r.MaxDepth
+    }
 }
 Write-Output 'PROGRESS|done|'
 ConvertTo-Json -InputObject $result -Compress -Depth 3

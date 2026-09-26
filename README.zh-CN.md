@@ -6,23 +6,29 @@
 
 ## 截图
 
-| 磁盘总览 | 目录分析 |
-|:---:|:---:|
+|               磁盘总览               |                 目录分析                  |
+| :----------------------------------: | :---------------------------------------: |
 | ![](screenshots/Disk%20Overview.png) | ![](screenshots/Directory%20Analysis.png) |
 
-| 迁移任务 | 已迁移与回滚 |
-|:---:|:---:|
+|                迁移任务                |                已迁移与回滚                 |
+| :------------------------------------: | :-----------------------------------------: |
 | ![](screenshots/Migration%20Tasks.png) | ![](screenshots/Migrated%20%20Rollback.png) |
 
-| 活动日志 |
-|:---:|
-| ![](screenshots/ctivity%20Log.png) |
+|              活动日志               |
+| :---------------------------------: |
+| ![](screenshots/Activity%20Log.png) |
 
 ## 工作原理
 
-JunctionMover 将 `AppData\Local` 和 `AppData\Roaming` 下占用空间的目录迁移到其他盘，流程如下：
+JunctionMover 将占用空间的目录迁移到其他盘，扫描三个位置：
 
-1. 扫描 C 盘 AppData，按目录类型（缓存/数据/配置/系统）分类，标注可迁移性
+- `C:\Users\<用户名>\AppData\Local`
+- `C:\Users\<用户名>\AppData\Roaming`
+- 用户主目录下的点开头文件夹（如 `.dsh`、`.gradle`、`.npm`、`.cache`），不会枚举桌面、文档等个人文件夹
+
+迁移流程如下：
+
+1. 扫描上述位置，按目录类型（缓存/数据/配置/系统）分类，标注可迁移性
 2. 用 robocopy 将数据复制到目标盘，校验文件数和大小完全一致
 3. 删除 C 盘原目录，创建 Windows 目录联接（Junction），原路径指向新位置
 4. 软件通过原路径访问时，系统自动跳转到目标盘，对软件完全透明
@@ -31,7 +37,7 @@ JunctionMover 将 `AppData\Local` 和 `AppData\Roaming` 下占用空间的目录
 
 ## 核心特性
 
-- **目录扫描**：自动遍历 `AppData\Local` 和 `AppData\Roaming`，按类型分类，标注可迁移性
+- **目录扫描**：遍历 `AppData\Local`、`AppData\Roaming` 和用户主目录下的点开头文件夹，按类型分类，标注可迁移性
 - **安全迁移**：robocopy 复制 → 文件数+字节双校验 → 删源 → 建联接 → 联接验证，任何一步失败都会中止，失败时自动回拷
 - **一键回滚**：将数据从目标盘搬回 C 盘原路径，自动移除联接
 - **缓存推荐**：缓存类目录（Cache、Temp、Logs）软件可自动重建，迁移风险较低，单独筛选优先推荐
@@ -44,9 +50,14 @@ JunctionMover 将 `AppData\Local` 和 `AppData\Roaming` 下占用空间的目录
 
 ## 下载安装
 
-### 方式一：下载安装包
+### 方式一：下载发布包
 
-到 [Releases](../../releases) 页面下载最新的 `.exe` 安装包，双击运行。
+到 [Releases](https://github.com/longwaye/JunctionMover/releases) 页面，提供两种包：
+
+- `JunctionMover_x.x.x_x64-setup.exe` — 安装版（推荐）
+- `JunctionMover_x.x.x_portable_x64.zip` — 绿色版，解压即用，不安装、不写注册表
+
+两种包都依赖 WebView2 运行时，Windows 10（1803+）和 Windows 11 默认已预装。
 
 ### 方式二：自行编译
 
@@ -83,15 +94,16 @@ npm run tauri build  # 打包安装包
 - 缓存目录迁移风险较低，但缓存中可能包含正在使用的会话文件
 - 回滚会将数据从目标盘搬回 C 盘，若手动删除了目标盘数据则无法回滚
 - 系统目录（Microsoft、Windows、NVIDIA 等）不支持迁移
+- 主目录点文件夹中包含 `.ssh`、`.aws`、`.gnupg` 等凭证目录，它们会显示在列表中，但不建议迁移，除非清楚后果
 
 ## 技术栈
 
-| 层 | 技术 | 说明 |
-|---|---|---|
-| 桌面框架 | [Tauri 2](https://v2.tauri.app/) | Rust 后端 + WebView 前端，安装包约 5MB |
-| 后端 | Rust | 路径校验、PowerShell 调度、进度流式推送 |
-| 原生操作 | PowerShell 5.1 + robocopy | Windows 原生能力 |
-| 前端 | 原生 HTML/CSS/JS | 无框架依赖 |
+| 层       | 技术                             | 说明                                    |
+| -------- | -------------------------------- | --------------------------------------- |
+| 桌面框架 | [Tauri 2](https://v2.tauri.app/) | Rust 后端 + WebView 前端，安装包约 5MB  |
+| 后端     | Rust                             | 路径校验、PowerShell 调度、进度流式推送 |
+| 原生操作 | PowerShell 5.1 + robocopy        | Windows 原生能力                        |
+| 前端     | 原生 HTML/CSS/JS                 | 无框架依赖                              |
 
 ## 安全设计
 
@@ -123,9 +135,30 @@ JunctionMover/
 │   │   └── state.rs        # 应用状态
 │   ├── Cargo.toml          # Rust 依赖
 │   └── tauri.conf.json     # Tauri 配置
+├── screenshots/            # README 使用的截图
 ├── package.json
-└── vite.config.js
+├── vite.config.js
+├── .gitignore
+├── LICENSE                 # MIT 协议
+├── README.md               # 英文文档
+└── README.zh-CN.md         # 中文文档
 ```
+
+## 仓库文件说明
+
+仓库只追踪源代码和文档，开发过程中生成的内容由 [.gitignore](.gitignore) 排除：
+
+| 规则                                    | 排除内容                               |
+| --------------------------------------- | -------------------------------------- |
+| `node_modules/`、`dist/`                | 前端依赖和 Vite 构建产物               |
+| `src-tauri/target/`、`src-tauri/gen/`   | Rust 构建缓存和 Tauri 生成文件         |
+| `.vscode/`、`.idea/`                    | 编辑器配置                             |
+| `*.log`                                 | 日志文件                               |
+| `*.ps1`、`*.bat`                        | 本地临时脚本                           |
+| `/*.zip`、`/*-setup.exe`                | 发布安装包（统一发布在 Releases 页面） |
+| `Thumbs.db`、`Desktop.ini`、`.DS_Store` | 系统生成文件                           |
+
+克隆仓库后执行 `npm install` 和 `npm run tauri build` 即可重新生成所有被排除的内容。
 
 ## 开发
 
@@ -158,7 +191,7 @@ cd src-tauri && cargo test e2e_migrate_scenarios -- --ignored --nocapture
 
 **能迁移哪些目录**
 
-`AppData\Local` 和 `AppData\Roaming` 下的用户数据目录。系统目录（Microsoft、Windows、NVIDIA 等）已自动排除。缓存类目录（Cache、Temp、Logs）迁移风险最低，有「安全推荐」筛选。
+`AppData\Local`、`AppData\Roaming` 下的用户数据目录，以及用户主目录下的点开头文件夹（`.dsh`、`.gradle`、`.npm` 等）。系统目录（Microsoft、Windows、NVIDIA 等）已自动排除。缓存类目录（Cache、Temp、Logs）迁移风险最低，有「安全推荐」筛选。`.ssh`、`.aws` 等凭证文件夹虽然可见，但不建议迁移。
 
 **支持 Windows 7 / 8 吗**
 

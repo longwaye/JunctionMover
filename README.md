@@ -6,23 +6,29 @@
 
 ## Screenshots
 
-| Disk Overview | Directory Analysis |
-|:---:|:---:|
+|            Disk Overview             |            Directory Analysis             |
+| :----------------------------------: | :---------------------------------------: |
 | ![](screenshots/Disk%20Overview.png) | ![](screenshots/Directory%20Analysis.png) |
 
-| Migration Tasks | Migrated & Rollback |
-|:---:|:---:|
+|            Migration Tasks             |             Migrated & Rollback             |
+| :------------------------------------: | :-----------------------------------------: |
 | ![](screenshots/Migration%20Tasks.png) | ![](screenshots/Migrated%20%20Rollback.png) |
 
-| Activity Log |
-|:---:|
-| ![](screenshots/ctivity%20Log.png) |
+|            Activity Log             |
+| :---------------------------------: |
+| ![](screenshots/Activity%20Log.png) |
 
 ## How It Works
 
-JunctionMover moves space-consuming directories under `AppData\Local` and `AppData\Roaming` to another drive:
+JunctionMover moves space-consuming directories to another drive. It scans three locations:
 
-1. Scans C drive AppData, classifies directories by type (cache/data/config/system), marks movability
+- `C:\Users\<you>\AppData\Local`
+- `C:\Users\<you>\AppData\Roaming`
+- Dot-folders directly under the user home directory (e.g. `.dsh`, `.gradle`, `.npm`, `.cache`) — standard user folders like Desktop and Documents are never enumerated
+
+Migration flow:
+
+1. Scans the locations above, classifies directories by type (cache/data/config/system), marks movability
 2. Copies data to the target drive using robocopy, verifies file count and total bytes match
 3. Deletes the original C drive directory, creates a Windows Junction so the original path points to the new location
 4. When apps access the original path, the OS transparently redirects to the target drive
@@ -31,7 +37,7 @@ JunctionMover moves space-consuming directories under `AppData\Local` and `AppDa
 
 ## Key Features
 
-- **Directory Scanning**: Automatically traverses `AppData\Local` and `AppData\Roaming`, classifies by type, marks movability
+- **Directory Scanning**: Traverses `AppData\Local`, `AppData\Roaming`, and dot-folders in the user home directory, classifies by type, marks movability
 - **Safe Migration**: robocopy copy → file count + byte dual verification → delete source → create junction → verify junction. Any step failure aborts the operation; failed junction creation triggers automatic data restoration
 - **One-Click Rollback**: Moves data back from the target drive to the original C drive path, removes the junction
 - **Cache Recommendations**: Cache directories (Cache, Temp, Logs) can be rebuilt by apps, making them relatively safe to migrate. Filtered and prioritized separately
@@ -44,9 +50,14 @@ JunctionMover moves space-consuming directories under `AppData\Local` and `AppDa
 
 ## Download & Install
 
-### Option 1: Download the installer
+### Option 1: Download a release build
 
-Go to the [Releases](../../releases) page, download the latest `.exe` installer, and run it.
+Go to the [Releases](https://github.com/longwaye/JunctionMover/releases) page. Two packages are provided:
+
+- `JunctionMover_x.x.x_x64-setup.exe` — installer (recommended)
+- `JunctionMover_x.x.x_portable_x64.zip` — portable build, unzip and run, no installation and no registry changes
+
+Both require the WebView2 runtime, which is preinstalled on Windows 10 (1803+) and Windows 11.
 
 ### Option 2: Build from source
 
@@ -83,15 +94,16 @@ npm run tauri build  # build installer
 - Cache directories are relatively safe to migrate, but caches may contain active session files.
 - Rollback moves data from the target drive back to C drive. If you manually deleted the target drive data, rollback is not possible.
 - System directories (Microsoft, Windows, NVIDIA, etc.) are not supported for migration.
+- Home dot-folders include credential directories such as `.ssh`, `.aws`, and `.gnupg`. They are listed for completeness but should not be migrated unless you know what you are doing.
 
 ## Tech Stack
 
-| Layer | Technology | Notes |
-|---|---|---|
-| Desktop framework | [Tauri 2](https://v2.tauri.app/) | Rust backend + WebView frontend, ~5MB installer |
-| Backend | Rust | Path validation, PowerShell orchestration, progress streaming |
-| Native operations | PowerShell 5.1 + robocopy | Windows native capabilities |
-| Frontend | Vanilla HTML/CSS/JS | No framework dependencies |
+| Layer             | Technology                       | Notes                                                         |
+| ----------------- | -------------------------------- | ------------------------------------------------------------- |
+| Desktop framework | [Tauri 2](https://v2.tauri.app/) | Rust backend + WebView frontend, ~5MB installer               |
+| Backend           | Rust                             | Path validation, PowerShell orchestration, progress streaming |
+| Native operations | PowerShell 5.1 + robocopy        | Windows native capabilities                                   |
+| Frontend          | Vanilla HTML/CSS/JS              | No framework dependencies                                     |
 
 ## Security Design
 
@@ -123,9 +135,30 @@ JunctionMover/
 │   │   └── state.rs        # App state
 │   ├── Cargo.toml          # Rust dependencies
 │   └── tauri.conf.json     # Tauri config
+├── screenshots/            # Screenshots used in README
 ├── package.json
-└── vite.config.js
+├── vite.config.js
+├── .gitignore
+├── LICENSE                 # MIT
+├── README.md               # English documentation
+└── README.zh-CN.md         # Chinese documentation
 ```
+
+## Repository Files
+
+Only source code and documentation are tracked in git. The [.gitignore](.gitignore) excludes everything generated during development:
+
+| Rule                                    | Excludes                                                  |
+| --------------------------------------- | --------------------------------------------------------- |
+| `node_modules/`, `dist/`                | Frontend dependencies and Vite build output               |
+| `src-tauri/target/`, `src-tauri/gen/`   | Rust build cache and Tauri-generated files                |
+| `.vscode/`, `.idea/`                    | Editor settings                                           |
+| `*.log`                                 | Log files                                                 |
+| `*.ps1`, `*.bat`                        | Local temporary scripts                                   |
+| `/*.zip`, `/*-setup.exe`                | Release packages (published on the Releases page instead) |
+| `Thumbs.db`, `Desktop.ini`, `.DS_Store` | OS-generated files                                        |
+
+Cloning the repository and running `npm install` followed by `npm run tauri build` regenerates all excluded content.
 
 ## Development
 
@@ -158,7 +191,7 @@ No. The migration flow is: copy → verify match → delete source → create ju
 
 **What directories can be migrated?**
 
-User data directories under `AppData\Local` and `AppData\Roaming`. System directories (Microsoft, Windows, NVIDIA, etc.) are automatically excluded. Cache directories (Cache, Temp, Logs) have the lowest migration risk — use the "Safe picks" filter.
+User data directories under `AppData\Local`, `AppData\Roaming`, and dot-folders directly under the user home (`.dsh`, `.gradle`, `.npm`, etc.). System directories (Microsoft, Windows, NVIDIA, etc.) are automatically excluded. Cache directories (Cache, Temp, Logs) have the lowest migration risk — use the "Safe picks" filter. Credential folders such as `.ssh` and `.aws` are visible but should be left alone.
 
 **Does it support Windows 7 / 8?**
 

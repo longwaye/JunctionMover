@@ -17,6 +17,10 @@ src-tauri/gen/
 *.ps1
 *.bat
 
+# Release artifacts (download from Releases page instead)
+/*.zip
+/*-setup.exe
+
 # OS
 Thumbs.db
 Desktop.ini

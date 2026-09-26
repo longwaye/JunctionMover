@@ -1,7 +1,7 @@
 {
   "name": "junctionmover",
   "version": "0.1.0",
-  "description": "JunctionMover - AppData 目录扫描与安全迁移工具",
+  "description": "JunctionMover - C盘目录扫描与安全迁移工具",
   "private": true,
   "type": "module",
   "scripts": {
